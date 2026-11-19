@@ -1,0 +1,19 @@
+package com.harmoniedev.api.joinrequest.domain.dto.request;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+@Builder
+public class ConvertJoinRequestRequest {
+	private Integer trialDays;
+
+	/** Overrides the request's requestedPlanId — Super Admin can pick a different plan at conversion time. */
+	private String planId;
+}
