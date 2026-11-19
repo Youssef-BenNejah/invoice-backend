@@ -8,6 +8,7 @@ import com.harmoniedev.api.stock.domain.model.StockMovementDocument;
 import com.harmoniedev.api.stock.domain.model.StockMovementType;
 import com.harmoniedev.api.stock.domain.model.StockSourceType;
 import com.harmoniedev.api.stock.repository.StockMovementRepository;
+import java.time.LocalDate;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,32 @@ public class StockService {
 	public List<StockMovementResponse> listMovements(String productId) {
 		findProductOrThrow(productId);
 		return movementRepository.findByProductIdOrderByCreatedDesc(productId).stream().map(this::toResponse).toList();
+	}
+
+	/** CMV (coût des marchandises vendues) over a period: every VENTE movement valued at the CMP it was sold at. */
+	public double computeCmv(String dateFrom, String dateTo) {
+		LocalDate from = parseOrNull(dateFrom);
+		LocalDate to = parseOrNull(dateTo);
+		return round(movementRepository.findAll().stream()
+				.filter(m -> m.getType() == StockMovementType.VENTE)
+				.filter(m -> inRange(m.getCreated(), from, to))
+				.mapToDouble(m -> Math.abs(m.getQuantityDelta()) * m.getUnitCost())
+				.sum());
+	}
+
+	private static LocalDate parseOrNull(String date) {
+		if (date == null || date.isBlank()) return null;
+		try {
+			return LocalDate.parse(date);
+		} catch (Exception ex) {
+			return null;
+		}
+	}
+
+	private static boolean inRange(java.time.Instant instant, LocalDate from, LocalDate to) {
+		if (instant == null) return false;
+		LocalDate date = instant.atZone(java.time.ZoneOffset.UTC).toLocalDate();
+		return (from == null || !date.isBefore(from)) && (to == null || !date.isAfter(to));
 	}
 
 	/** Facture Achat validated: adds {@code quantity} at {@code unitCostHT}, recomputing the CMP. */

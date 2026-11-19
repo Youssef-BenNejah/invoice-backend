@@ -16,6 +16,8 @@ import com.harmoniedev.api.achat.domain.model.AchatDocument;
 import com.harmoniedev.api.achat.repository.AchatRepository;
 import com.harmoniedev.api.catalog.domain.model.ProductDocument;
 import com.harmoniedev.api.catalog.repository.ProductRepository;
+import com.harmoniedev.api.company.domain.dto.response.CompanyResponse;
+import com.harmoniedev.api.company.service.CompanyService;
 import com.harmoniedev.api.currency.domain.dto.response.CurrencyResponse;
 import com.harmoniedev.api.currency.service.CurrencyService;
 import com.harmoniedev.api.fournisseur.domain.dto.response.FournisseurResponse;
@@ -46,12 +48,15 @@ class AchatServiceTest {
 	private ProductRepository productRepository;
 	@Mock
 	private StockService stockService;
+	@Mock
+	private CompanyService companyService;
 
 	private AchatService achatService;
 
 	@BeforeEach
 	void setUp() {
-		achatService = new AchatService(repository, fournisseurService, currencyService, taxRepository, productRepository, stockService);
+		achatService = new AchatService(
+				repository, fournisseurService, currencyService, taxRepository, productRepository, stockService, companyService);
 	}
 
 	@Test
@@ -61,6 +66,7 @@ class AchatServiceTest {
 		when(productRepository.findById("prod-1"))
 				.thenReturn(Optional.of(ProductDocument.builder().id("prod-1").name("Oud du Cambodge").build()));
 		when(repository.findByYear(2026)).thenReturn(List.of());
+		when(companyService.getOrCreate("user-1")).thenReturn(CompanyResponse.builder().assujettiTva(true).build());
 		when(repository.save(any(AchatDocument.class))).thenAnswer(inv -> {
 			AchatDocument doc = inv.getArgument(0);
 			doc.setId("achat-1");
@@ -79,6 +85,84 @@ class AchatServiceTest {
 		assertThat(response.getId()).isEqualTo("achat-1");
 		assertThat(response.getSubtotal()).isEqualTo(200.0);
 		verify(stockService).recordAchatEntry("prod-1", 10.0, 20.0, "achat-1", "user-1");
+	}
+
+	@Test
+	void create_nonAssujettiCompany_foldsNonRecoverableTvaIntoStockCost() {
+		when(fournisseurService.get("supplier-1")).thenReturn(FournisseurResponse.builder().id("supplier-1").build());
+		when(currencyService.get("tnd")).thenReturn(CurrencyResponse.builder().id("tnd").build());
+		when(productRepository.findById("prod-1"))
+				.thenReturn(Optional.of(ProductDocument.builder().id("prod-1").name("Oud du Cambodge").build()));
+		when(repository.findByYear(2026)).thenReturn(List.of());
+		when(repository.save(any(AchatDocument.class))).thenAnswer(inv -> {
+			AchatDocument doc = inv.getArgument(0);
+			doc.setId("achat-1");
+			return doc;
+		});
+		// Non-assujetti : 19% de TVA sur 20.0/unité = 3.80/unité non récupérable -> coût stock = 23.80.
+		when(companyService.getOrCreate("user-1")).thenReturn(CompanyResponse.builder().assujettiTva(false).build());
+		com.harmoniedev.api.tax.domain.model.TaxDocument tva =
+				com.harmoniedev.api.tax.domain.model.TaxDocument.builder().id("tva-19").name("TVA").taxvalue(19.0).build();
+		when(taxRepository.findById("tva-19")).thenReturn(Optional.of(tva));
+
+		AchatRequest request = AchatRequest.builder()
+				.fournisseurId("supplier-1")
+				.currencyId("tnd")
+				.date("2026-11-19")
+				.items(List.of(AchatItemRequest.builder().productId("prod-1").quantity(10).unitPriceHT(20.0).taxId("tva-19").build()))
+				.build();
+
+		achatService.create(request, "user-1");
+
+		verify(stockService).recordAchatEntry("prod-1", 10.0, 23.8, "achat-1", "user-1");
+	}
+
+	@Test
+	void create_retenueSourceRate_computesAmountAndNetPayable() {
+		when(fournisseurService.get("supplier-1")).thenReturn(FournisseurResponse.builder().id("supplier-1").build());
+		when(currencyService.get("tnd")).thenReturn(CurrencyResponse.builder().id("tnd").build());
+		when(productRepository.findById("prod-1"))
+				.thenReturn(Optional.of(ProductDocument.builder().id("prod-1").name("Oud du Cambodge").build()));
+		when(repository.findByYear(2026)).thenReturn(List.of());
+		when(repository.save(any(AchatDocument.class))).thenAnswer(inv -> {
+			AchatDocument doc = inv.getArgument(0);
+			doc.setId("achat-1");
+			return doc;
+		});
+		when(companyService.getOrCreate("user-1")).thenReturn(CompanyResponse.builder().assujettiTva(true).build());
+
+		AchatRequest request = AchatRequest.builder()
+				.fournisseurId("supplier-1")
+				.currencyId("tnd")
+				.date("2026-11-19")
+				.retenueSourceRate(1.5)
+				.items(List.of(AchatItemRequest.builder().productId("prod-1").quantity(10).unitPriceHT(200.0).build()))
+				.build();
+
+		AchatResponse response = achatService.create(request, "user-1");
+
+		assertThat(response.getTotal()).isEqualTo(2000.0);
+		assertThat(response.getRetenueSourceAmount()).isEqualTo(30.0);
+		assertThat(response.getMontantNetAPayer()).isEqualTo(1970.0);
+	}
+
+	@Test
+	void create_invalidRetenueRate_isRejected() {
+		when(fournisseurService.get("supplier-1")).thenReturn(FournisseurResponse.builder().id("supplier-1").build());
+		when(currencyService.get("tnd")).thenReturn(CurrencyResponse.builder().id("tnd").build());
+
+		AchatRequest request = AchatRequest.builder()
+				.fournisseurId("supplier-1")
+				.currencyId("tnd")
+				.date("2026-11-19")
+				.retenueSourceRate(2.0)
+				.items(List.of(AchatItemRequest.builder().productId("prod-1").quantity(1).unitPriceHT(10).build()))
+				.build();
+
+		assertThatThrownBy(() -> achatService.create(request, "user-1"))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasMessageContaining("400");
+		verify(repository, never()).save(any());
 	}
 
 	@Test

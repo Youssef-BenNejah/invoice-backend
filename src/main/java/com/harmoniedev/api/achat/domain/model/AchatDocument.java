@@ -36,6 +36,17 @@ public class AchatDocument {
 	private double taxAmount;
 	private double total;
 
+	/** Retenue à la source (%) — 0, 1, 1.5 ou 3, appliquée au total TTC. */
+	@Default
+	private double retenueSourceRate = 0;
+
+	@Default
+	private double retenueSourceAmount = 0;
+
+	/** total - retenueSourceAmount : ce qui est réellement réglé au fournisseur. */
+	@Default
+	private double montantNetAPayer = 0;
+
 	private String createdBy;
 
 	@CreatedDate

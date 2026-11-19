@@ -27,6 +27,9 @@ public class AchatResponse {
 	private double subtotal;
 	private double taxAmount;
 	private double total;
+	private double retenueSourceRate;
+	private double retenueSourceAmount;
+	private double montantNetAPayer;
 	private String createdBy;
 	private Instant created;
 }

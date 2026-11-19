@@ -9,6 +9,8 @@ import com.harmoniedev.api.achat.domain.model.AchatItemDocument;
 import com.harmoniedev.api.achat.repository.AchatRepository;
 import com.harmoniedev.api.catalog.domain.model.ProductDocument;
 import com.harmoniedev.api.catalog.repository.ProductRepository;
+import com.harmoniedev.api.company.domain.dto.response.CompanyResponse;
+import com.harmoniedev.api.company.service.CompanyService;
 import com.harmoniedev.api.currency.domain.dto.response.CurrencyResponse;
 import com.harmoniedev.api.currency.service.CurrencyService;
 import com.harmoniedev.api.fournisseur.domain.dto.response.FournisseurResponse;
@@ -26,12 +28,16 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class AchatService {
+	/** Retenue à la source n'est admise qu'à ces taux (%) par la réglementation tunisienne. */
+	private static final java.util.Set<Double> VALID_RETENUE_RATES = java.util.Set.of(0.0, 1.0, 1.5, 3.0);
+
 	private final AchatRepository repository;
 	private final FournisseurService fournisseurService;
 	private final CurrencyService currencyService;
 	private final TaxRepository taxRepository;
 	private final ProductRepository productRepository;
 	private final StockService stockService;
+	private final CompanyService companyService;
 
 	public AchatService(
 			AchatRepository repository,
@@ -39,23 +45,29 @@ public class AchatService {
 			CurrencyService currencyService,
 			TaxRepository taxRepository,
 			ProductRepository productRepository,
-			StockService stockService) {
+			StockService stockService,
+			CompanyService companyService) {
 		this.repository = repository;
 		this.fournisseurService = fournisseurService;
 		this.currencyService = currencyService;
 		this.taxRepository = taxRepository;
 		this.productRepository = productRepository;
 		this.stockService = stockService;
+		this.companyService = companyService;
 	}
 
 	/** Creating an Achat is validating it: stock moves in immediately, there is no draft state. */
 	public AchatResponse create(AchatRequest request, String actorId) {
 		fournisseurService.get(request.getFournisseurId());
 		currencyService.get(request.getCurrencyId());
+		if (!VALID_RETENUE_RATES.contains(request.getRetenueSourceRate())) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Taux de retenue à la source invalide (attendu 0, 1, 1.5 ou 3)");
+		}
 		int year = Year.parse(request.getDate().substring(0, 4)).getValue();
 
 		List<AchatItemDocument> items = buildItems(request.getItems());
 		Totals totals = computeTotals(items);
+		double retenueSourceAmount = round2(totals.total() * request.getRetenueSourceRate() / 100);
 
 		AchatDocument doc = AchatDocument.builder()
 				.fournisseurId(request.getFournisseurId())
@@ -68,12 +80,21 @@ public class AchatService {
 				.subtotal(totals.subtotal())
 				.taxAmount(totals.taxAmount())
 				.total(totals.total())
+				.retenueSourceRate(request.getRetenueSourceRate())
+				.retenueSourceAmount(retenueSourceAmount)
+				.montantNetAPayer(round2(totals.total() - retenueSourceAmount))
 				.createdBy(actorId)
 				.build();
 		repository.save(doc);
 
+		// Si l'entreprise n'est pas assujettie à la TVA, la TVA payée n'est pas récupérable et
+		// doit entrer dans le coût d'acquisition du stock (CMP calculé TTC, pas HT).
+		boolean assujetti = companyService.getOrCreate(actorId).isAssujettiTva();
 		for (AchatItemDocument item : items) {
-			stockService.recordAchatEntry(item.getProductId(), item.getQuantity(), item.getUnitPriceHT(), doc.getId(), actorId);
+			double stockUnitCost = assujetti || item.getQuantity() == 0
+					? item.getUnitPriceHT()
+					: round2(item.getUnitPriceHT() + item.getTaxAmount() / item.getQuantity());
+			stockService.recordAchatEntry(item.getProductId(), item.getQuantity(), stockUnitCost, doc.getId(), actorId);
 		}
 		return toResponse(doc);
 	}
@@ -178,6 +199,9 @@ public class AchatService {
 				.subtotal(doc.getSubtotal())
 				.taxAmount(doc.getTaxAmount())
 				.total(doc.getTotal())
+				.retenueSourceRate(doc.getRetenueSourceRate())
+				.retenueSourceAmount(doc.getRetenueSourceAmount())
+				.montantNetAPayer(doc.getMontantNetAPayer())
 				.createdBy(doc.getCreatedBy())
 				.created(doc.getCreated())
 				.build();

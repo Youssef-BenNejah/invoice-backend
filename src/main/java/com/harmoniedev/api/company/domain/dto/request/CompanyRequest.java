@@ -26,4 +26,6 @@ public class CompanyRequest {
 	private String taxNumber;
 	private String vatNumber;
 	private String registrationNumber;
+	private boolean assujettiTva;
+	private String regimeFiscal;
 }

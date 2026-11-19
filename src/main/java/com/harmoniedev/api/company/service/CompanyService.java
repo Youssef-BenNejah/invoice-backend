@@ -36,6 +36,8 @@ public class CompanyService {
 		doc.setTaxNumber(request.getTaxNumber());
 		doc.setVatNumber(request.getVatNumber());
 		doc.setRegistrationNumber(request.getRegistrationNumber());
+		doc.setAssujettiTva(request.isAssujettiTva());
+		doc.setRegimeFiscal(request.getRegimeFiscal());
 		repository.save(doc);
 		return toResponse(doc);
 	}
@@ -71,6 +73,8 @@ public class CompanyService {
 				.vatNumber(doc.getVatNumber())
 				.registrationNumber(doc.getRegistrationNumber())
 				.logoUrl(doc.getLogoUrl())
+				.assujettiTva(doc.isAssujettiTva())
+				.regimeFiscal(doc.getRegimeFiscal())
 				.build();
 	}
 }

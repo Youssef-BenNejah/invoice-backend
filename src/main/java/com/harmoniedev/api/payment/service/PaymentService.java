@@ -7,6 +7,7 @@ import com.harmoniedev.api.payment.domain.dto.response.PaymentResponse;
 import com.harmoniedev.api.payment.domain.model.PaymentDocument;
 import com.harmoniedev.api.payment.repository.PaymentRepository;
 import java.util.List;
+import java.util.Objects;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -42,9 +43,20 @@ public class PaymentService {
 		return toResponse(doc, invoice);
 	}
 
+	/**
+	 * Skips (rather than fails on) a payment whose invoice was since deleted — one orphaned
+	 * payment must never take down the whole ledger view.
+	 */
 	public List<PaymentResponse> list() {
 		return repository.findAll().stream()
-				.map(doc -> toResponse(doc, invoiceService.get(doc.getInvoiceId())))
+				.map(doc -> {
+					try {
+						return toResponse(doc, invoiceService.get(doc.getInvoiceId()));
+					} catch (ResponseStatusException ex) {
+						return null;
+					}
+				})
+				.filter(Objects::nonNull)
 				.toList();
 	}
 
@@ -62,10 +74,14 @@ public class PaymentService {
 
 	public void delete(String id) {
 		PaymentDocument doc = findOrThrow(id);
-		InvoiceResponse invoice = invoiceService.get(doc.getInvoiceId());
-		double newPaidAmount = Math.max(0, invoice.getPaidAmount() - doc.getAmountPaid());
 		repository.deleteById(id);
-		invoiceService.applyPayment(doc.getInvoiceId(), newPaidAmount);
+		try {
+			InvoiceResponse invoice = invoiceService.get(doc.getInvoiceId());
+			double newPaidAmount = Math.max(0, invoice.getPaidAmount() - doc.getAmountPaid());
+			invoiceService.applyPayment(doc.getInvoiceId(), newPaidAmount);
+		} catch (ResponseStatusException ex) {
+			// invoice already deleted — nothing left to reconcile
+		}
 	}
 
 	private PaymentDocument findOrThrow(String id) {

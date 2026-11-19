@@ -28,6 +28,9 @@ public class AchatRequest {
 
 	private String note;
 
+	/** Retenue à la source (%) — 0, 1, 1.5 ou 3. Calculée sur le total TTC. */
+	private double retenueSourceRate;
+
 	@NotNull
 	@NotEmpty
 	@Valid
