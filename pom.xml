@@ -9,10 +9,10 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.harmoniedev</groupId>
-	<artifactId>harmonie-dev-api</artifactId>
+	<artifactId>invoxa-api</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>harmonie-dev-api</name>
-	<description>Harmonie-dev backend API</description>
+	<name>invoxa-api</name>
+	<description>Invoxa backend API</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -55,11 +55,6 @@
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-security</artifactId>
-			<version>${spring-boot.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-redis</artifactId>
 			<version>${spring-boot.version}</version>
 		</dependency>
 		<dependency>
@@ -122,11 +117,6 @@
 		<dependency>
 			<groupId>com.bucket4j</groupId>
 			<artifactId>bucket4j-core</artifactId>
-			<version>${bucket4j.version}</version>
-		</dependency>
-		<dependency>
-			<groupId>com.bucket4j</groupId>
-			<artifactId>bucket4j-redis</artifactId>
 			<version>${bucket4j.version}</version>
 		</dependency>
 

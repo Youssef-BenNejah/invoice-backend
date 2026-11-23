@@ -26,26 +26,26 @@ public class MailService {
 	}
 
 	public void sendWelcomeEmail(String toEmail, String firstName, String rawPassword) {
-		String subject = "Bienvenue sur Harmonie-dev — vos identifiants";
+		String subject = "Bienvenue sur Invoxa — vos identifiants";
 		String html = welcomeTemplate(firstName, toEmail, rawPassword);
 		send(toEmail, subject, html);
 	}
 
 	public void sendPasswordResetCode(String toEmail, String firstName, String code) {
-		String subject = "Harmonie-dev — code de réinitialisation";
+		String subject = "Invoxa — code de réinitialisation";
 		String html = resetCodeTemplate(firstName, code);
 		send(toEmail, subject, html);
 	}
 
 	public void sendPasswordChangedByAdminEmail(String toEmail, String firstName, String rawPassword) {
-		String subject = "Harmonie-dev — votre mot de passe a été réinitialisé";
+		String subject = "Invoxa — votre mot de passe a été réinitialisé";
 		String html = passwordChangedTemplate(firstName, toEmail, rawPassword);
 		send(toEmail, subject, html);
 	}
 
 	/** Sends an invoice PDF as an attachment — the one email template built from real invoice/company data, not a fixed layout. */
 	public void sendInvoiceEmail(String toEmail, String clientName, String invoiceLabel, byte[] pdfBytes, String fileName) {
-		String subject = "Harmonie-dev — " + invoiceLabel;
+		String subject = "Invoxa — " + invoiceLabel;
 		String greetingName = (clientName == null || clientName.isBlank()) ? "" : " " + escape(clientName);
 		String html = baseLayout(
 				"Votre facture",
@@ -99,13 +99,13 @@ public class MailService {
 	private String welcomeTemplate(String firstName, String email, String rawPassword) {
 		String greetingName = (firstName == null || firstName.isBlank()) ? "" : " " + escape(firstName);
 		return baseLayout(
-				"Bienvenue sur Harmonie-dev",
+				"Bienvenue sur Invoxa",
 				"""
 				<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:#334155;">
 					Bonjour%s,
 				</p>
 				<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#334155;">
-					Votre compte Harmonie-dev a été créé. Voici vos identifiants de connexion —
+					Votre compte Invoxa a été créé. Voici vos identifiants de connexion —
 					gardez-les en lieu sûr et changez votre mot de passe après votre première connexion.
 				</p>
 				<table role="presentation" width="100%%" cellpadding="0" cellspacing="0"
@@ -142,7 +142,7 @@ public class MailService {
 					Bonjour%s,
 				</p>
 				<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#334155;">
-					Un administrateur a réinitialisé le mot de passe de votre compte Harmonie-dev.
+					Un administrateur a réinitialisé le mot de passe de votre compte Invoxa.
 					Voici votre nouveau mot de passe temporaire — changez-le après votre prochaine connexion.
 				</p>
 				<table role="presentation" width="100%%" cellpadding="0" cellspacing="0"
@@ -179,7 +179,7 @@ public class MailService {
 					Bonjour%s,
 				</p>
 				<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#334155;">
-					Voici votre code de vérification pour réinitialiser votre mot de passe Harmonie-dev.
+					Voici votre code de vérification pour réinitialiser votre mot de passe Invoxa.
 					Ce code expire dans 10 minutes.
 				</p>
 				<div style="text-align:center;margin:0 0 28px;">
@@ -205,9 +205,9 @@ public class MailService {
 						<tr>
 							<td style="background:linear-gradient(135deg,#0B2E73,#1565C6);border-radius:20px 20px 0 0;
 								padding:32px 24px;text-align:center;">
-								<img src="cid:%s" alt="Harmonie-dev" width="48" height="48"
+								<img src="cid:%s" alt="Invoxa" width="48" height="48"
 									style="display:block;margin:0 auto 12px;border-radius:12px;background:#ffffff;padding:6px;" />
-								<p style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">Harmonie-dev</p>
+								<p style="margin:0;color:#ffffff;font-size:20px;font-weight:700;">Invoxa</p>
 							</td>
 						</tr>
 						<tr>
@@ -220,7 +220,7 @@ public class MailService {
 							<td style="background:#ffffff;border-radius:0 0 20px 20px;padding:0 32px 28px;">
 								<p style="margin:0;font-size:12px;color:#94A3B8;text-align:center;border-top:1px solid #EEF2F7;
 									padding-top:20px;">
-									© %d Harmonie-dev — Facturation moderne. Cet e-mail vous a été envoyé automatiquement,
+									© %d Invoxa — Facturation moderne. Cet e-mail vous a été envoyé automatiquement,
 									merci de ne pas y répondre.
 								</p>
 							</td>

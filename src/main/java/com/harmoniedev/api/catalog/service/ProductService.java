@@ -28,7 +28,12 @@ public class ProductService {
 				.price(request.getPrice())
 				.description(request.getDescription())
 				.reference(request.getReference())
-				.categoryId(request.getCategoryId())
+				.defaultTaxId(request.getDefaultTaxId())
+				.longueur(request.getLongueur())
+				.largeur(request.getLargeur())
+				.hauteur(request.getHauteur())
+				.margeGain(request.getMargeGain())
+				.prixAchat(computePrixAchat(request))
 				.createdBy(actorId)
 				.build();
 		repository.save(doc);
@@ -50,9 +55,23 @@ public class ProductService {
 		doc.setPrice(request.getPrice());
 		doc.setDescription(request.getDescription());
 		doc.setReference(request.getReference());
-		doc.setCategoryId(request.getCategoryId());
+		doc.setDefaultTaxId(request.getDefaultTaxId());
+		doc.setLongueur(request.getLongueur());
+		doc.setLargeur(request.getLargeur());
+		doc.setHauteur(request.getHauteur());
+		doc.setMargeGain(request.getMargeGain());
+		doc.setPrixAchat(computePrixAchat(request));
 		repository.save(doc);
 		return toResponse(doc);
+	}
+
+	/** Cost price is always server-derived, never trusted from the client. */
+	private static double round2(double value) {
+		return Math.round(value * 100.0) / 100.0;
+	}
+
+	private static double computePrixAchat(ProductRequest request) {
+		return round2(request.getLongueur() * request.getLargeur() * request.getHauteur() * request.getPrice());
 	}
 
 	public void delete(String id) {
@@ -75,7 +94,12 @@ public class ProductService {
 				.price(doc.getPrice())
 				.description(doc.getDescription())
 				.reference(doc.getReference())
-				.categoryId(doc.getCategoryId())
+				.defaultTaxId(doc.getDefaultTaxId())
+				.longueur(doc.getLongueur())
+				.largeur(doc.getLargeur())
+				.hauteur(doc.getHauteur())
+				.prixAchat(doc.getPrixAchat())
+				.margeGain(doc.getMargeGain())
 				.createdBy(doc.getCreatedBy())
 				.created(doc.getCreated())
 				.stockQuantity(doc.getStockQuantity())

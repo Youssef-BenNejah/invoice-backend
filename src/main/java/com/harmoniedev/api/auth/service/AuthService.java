@@ -14,6 +14,7 @@ import com.harmoniedev.api.auth.domain.model.RefreshTokenDocument;
 import com.harmoniedev.api.auth.domain.model.UserDocument;
 import com.harmoniedev.api.auth.repository.RefreshTokenRepository;
 import com.harmoniedev.api.auth.repository.UserRepository;
+import com.harmoniedev.api.common.InMemoryCacheService;
 import com.harmoniedev.api.config.SecurityProperties;
 import com.harmoniedev.api.mail.MailService;
 import com.harmoniedev.api.currency.domain.model.CurrencyDocument;
@@ -36,7 +37,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
-import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -60,7 +60,7 @@ public class AuthService {
 	private final SecurityProperties securityProperties;
 	private final AuditService auditService;
 	private final MailService mailService;
-	private final StringRedisTemplate redisTemplate;
+	private final InMemoryCacheService cache;
 	private final CloudinaryService cloudinaryService;
 	private final NotificationService notificationService;
 	private final PlanRepository planRepository;
@@ -75,7 +75,7 @@ public class AuthService {
 			SecurityProperties securityProperties,
 			AuditService auditService,
 			MailService mailService,
-			StringRedisTemplate redisTemplate,
+			InMemoryCacheService cache,
 			CloudinaryService cloudinaryService,
 			NotificationService notificationService,
 			PlanRepository planRepository,
@@ -88,7 +88,7 @@ public class AuthService {
 		this.securityProperties = securityProperties;
 		this.auditService = auditService;
 		this.mailService = mailService;
-		this.redisTemplate = redisTemplate;
+		this.cache = cache;
 		this.cloudinaryService = cloudinaryService;
 		this.notificationService = notificationService;
 		this.planRepository = planRepository;
@@ -369,7 +369,7 @@ public class AuthService {
 		String normalized = email.trim().toLowerCase();
 		userRepository.findByEmail(normalized).ifPresent(user -> {
 			String code = generateNumericCode();
-			redisTemplate.opsForValue().set(RESET_CODE_PREFIX + normalized, code, RESET_CODE_TTL);
+			cache.set(RESET_CODE_PREFIX + normalized, code, RESET_CODE_TTL);
 			mailService.sendPasswordResetCode(normalized, user.getFirstName(), code);
 			auditService.log(user.getId(), AuditAction.PASSWORD_RESET_REQUESTED, ipAddress, userAgent);
 		});
@@ -378,18 +378,18 @@ public class AuthService {
 
 	public String verifyResetCode(String email, String code) {
 		String normalized = email.trim().toLowerCase();
-		String storedCode = redisTemplate.opsForValue().get(RESET_CODE_PREFIX + normalized);
+		String storedCode = cache.get(RESET_CODE_PREFIX + normalized);
 		if (storedCode == null || !storedCode.equals(code)) {
 			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired code");
 		}
-		redisTemplate.delete(RESET_CODE_PREFIX + normalized);
+		cache.delete(RESET_CODE_PREFIX + normalized);
 		String resetToken = UUID.randomUUID().toString();
-		redisTemplate.opsForValue().set(RESET_TOKEN_PREFIX + resetToken, normalized, RESET_TOKEN_TTL);
+		cache.set(RESET_TOKEN_PREFIX + resetToken, normalized, RESET_TOKEN_TTL);
 		return resetToken;
 	}
 
 	public void resetPassword(String resetToken, String newPassword, String ipAddress, String userAgent) {
-		String email = redisTemplate.opsForValue().get(RESET_TOKEN_PREFIX + resetToken);
+		String email = cache.get(RESET_TOKEN_PREFIX + resetToken);
 		if (email == null) {
 			throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired reset token");
 		}
@@ -397,7 +397,7 @@ public class AuthService {
 				.orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired reset token"));
 		user.setPasswordHash(passwordEncoder.encode(newPassword));
 		userRepository.save(user);
-		redisTemplate.delete(RESET_TOKEN_PREFIX + resetToken);
+		cache.delete(RESET_TOKEN_PREFIX + resetToken);
 		// Revoke every existing session — a password reset should invalidate prior refresh tokens.
 		List<RefreshTokenDocument> activeTokens = refreshTokenRepository.findByUserIdAndRevokedFalse(user.getId());
 		activeTokens.forEach(token -> token.setRevoked(true));

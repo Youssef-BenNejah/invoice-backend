@@ -24,7 +24,7 @@ public class PlanSeeder {
 		repository.saveAll(List.of(
 				PlanDocument.builder()
 						.nom("Essai gratuit")
-						.tagline("Découvrez Harmonie-dev sans engagement")
+						.tagline("Découvrez Invoxa sans engagement")
 						.prixMensuel(0)
 						.prixAnnuel(0)
 						.populaire(false)

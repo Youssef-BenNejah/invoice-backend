@@ -33,3 +33,8 @@ build/
 .vscode/
 
 
+
+### jpackage build output ###
+jpackage-input/
+jpackage-output/
+jpackage-run*.log

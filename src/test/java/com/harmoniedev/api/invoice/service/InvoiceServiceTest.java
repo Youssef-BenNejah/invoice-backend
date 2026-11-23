@@ -14,13 +14,14 @@ import com.harmoniedev.api.client.service.ClientService;
 import com.harmoniedev.api.company.service.CompanyService;
 import com.harmoniedev.api.currency.domain.dto.response.CurrencyResponse;
 import com.harmoniedev.api.currency.service.CurrencyService;
+import com.harmoniedev.api.fournisseur.domain.dto.response.FournisseurResponse;
+import com.harmoniedev.api.fournisseur.service.FournisseurService;
 import com.harmoniedev.api.invoice.domain.dto.request.InvoiceItemRequest;
 import com.harmoniedev.api.invoice.domain.dto.request.InvoiceRequest;
 import com.harmoniedev.api.invoice.domain.dto.response.InvoiceResponse;
 import com.harmoniedev.api.invoice.domain.model.InvoiceDocument;
 import com.harmoniedev.api.invoice.domain.model.InvoiceItemDocument;
 import com.harmoniedev.api.invoice.repository.InvoiceRepository;
-import com.harmoniedev.api.mail.MailService;
 import com.harmoniedev.api.pdf.InvoicePdfService;
 import com.harmoniedev.api.plan.service.PlanUsageService;
 import com.harmoniedev.api.stock.domain.dto.response.StockResponse;
@@ -44,6 +45,8 @@ class InvoiceServiceTest {
 	@Mock
 	private ClientRepository clientRepository;
 	@Mock
+	private FournisseurService fournisseurService;
+	@Mock
 	private CurrencyService currencyService;
 	@Mock
 	private com.harmoniedev.api.tax.repository.TaxRepository taxRepository;
@@ -51,8 +54,6 @@ class InvoiceServiceTest {
 	private CompanyService companyService;
 	@Mock
 	private InvoicePdfService invoicePdfService;
-	@Mock
-	private MailService mailService;
 	@Mock
 	private PlanUsageService planUsageService;
 	@Mock
@@ -68,11 +69,11 @@ class InvoiceServiceTest {
 				repository,
 				clientService,
 				clientRepository,
+				fournisseurService,
 				currencyService,
 				taxRepository,
 				companyService,
 				invoicePdfService,
-				mailService,
 				planUsageService,
 				cloudinaryService,
 				stockService);
@@ -94,7 +95,6 @@ class InvoiceServiceTest {
 				.currencyId("tnd")
 				.status(status)
 				.date("2026-11-19")
-				.expirationDate("2026-12-19")
 				.items(List.of(item.build()))
 				.build();
 	}
@@ -162,6 +162,60 @@ class InvoiceServiceTest {
 
 		verify(repository, never()).save(any());
 		verify(stockService, never()).recordVenteExit(anyString(), org.mockito.ArgumentMatchers.anyDouble(), anyString(), anyString());
+	}
+
+	@Test
+	void create_achatFactureWithProductLine_movesStockIn_andFlagsInvoice() {
+		when(fournisseurService.get("supplier-1")).thenReturn(FournisseurResponse.builder().id("supplier-1").build());
+		when(currencyService.get("tnd")).thenReturn(CurrencyResponse.builder().id("tnd").build());
+		when(repository.findByTypeAndYear("Achat", 2026)).thenReturn(List.of());
+		when(repository.save(any(InvoiceDocument.class))).thenAnswer(inv -> {
+			InvoiceDocument doc = inv.getArgument(0);
+			if (doc.getId() == null) doc.setId("achat-1");
+			return doc;
+		});
+
+		InvoiceRequest request = InvoiceRequest.builder()
+				.fournisseurId("supplier-1")
+				.currencyId("tnd")
+				.type("Achat")
+				.status("Facture")
+				.date("2026-11-19")
+				.items(List.of(InvoiceItemRequest.builder().productId("prod-1").article("Oud").quantity(10).price(20).build()))
+				.build();
+
+		InvoiceResponse response = invoiceService.create(request, "user-1");
+
+		assertThat(response.getId()).isEqualTo("achat-1");
+		verify(stockService).recordAchatEntry("prod-1", 10.0, 20.0, "achat-1", "user-1");
+		verify(stockService, never()).getStock(anyString()); // an achat never needs an "is there enough stock" check
+	}
+
+	@Test
+	void create_achatMissingFournisseurId_isRejected() {
+		InvoiceRequest request = InvoiceRequest.builder()
+				.currencyId("tnd")
+				.type("Achat")
+				.status("Facture")
+				.date("2026-11-19")
+				.items(List.of(InvoiceItemRequest.builder().article("Oud").quantity(1).price(20).build()))
+				.build();
+
+		assertThatThrownBy(() -> invoiceService.create(request, "user-1"))
+				.isInstanceOf(ResponseStatusException.class)
+				.hasMessageContaining("400");
+		verify(repository, never()).save(any());
+	}
+
+	@Test
+	void delete_achatInvoice_reversesStockWithAchatSourceType() {
+		InvoiceDocument applied = InvoiceDocument.builder().id("achat-1").createdBy("user-1").type("Achat").stockApplied(true).build();
+		when(repository.findById("achat-1")).thenReturn(java.util.Optional.of(applied));
+
+		invoiceService.delete("achat-1");
+
+		verify(stockService).reverseMovementsForSource("achat-1", StockSourceType.FACTURE_ACHAT, "user-1");
+		verify(repository).deleteById("achat-1");
 	}
 
 	@Test

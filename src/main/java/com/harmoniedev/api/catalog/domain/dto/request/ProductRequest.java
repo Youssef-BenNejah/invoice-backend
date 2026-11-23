@@ -25,5 +25,13 @@ public class ProductRequest {
 
 	private String reference;
 
-	private String categoryId;
+	private String defaultTaxId;
+
+	private double longueur;
+
+	private double largeur;
+
+	private double hauteur;
+
+	private double margeGain;
 }

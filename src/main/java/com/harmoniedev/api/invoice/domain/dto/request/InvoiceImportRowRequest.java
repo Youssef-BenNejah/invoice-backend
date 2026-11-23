@@ -33,7 +33,7 @@ public class InvoiceImportRowRequest {
 
 	private Double montantPaye;
 
-	/** "impayé" | "Partiellement payé" | "Payé" | "Retard" — defaults to "impayé" if blank/unrecognized. */
+	/** "impayé" | "Partiellement payé" | "Payé" — defaults to "impayé" if blank/unrecognized. */
 	private String statut;
 
 	/** "Standard" | "Proforma" — defaults to "Standard". */
@@ -41,8 +41,6 @@ public class InvoiceImportRowRequest {
 
 	/** Reuses this number instead of auto-incrementing, so an old system's numbering can be preserved. */
 	private Integer numero;
-
-	private String note;
 
 	/** URL of the scanned document (image or PDF) previously uploaded via POST /invoices/documents. */
 	private String factureImage;

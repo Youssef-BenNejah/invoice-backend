@@ -2,7 +2,6 @@ package com.harmoniedev.api.company.domain.model;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Builder.Default;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
@@ -36,15 +35,4 @@ public class CompanyDocument {
 	private String registrationNumber;
 	private String logoUrl;
 	private String logoPublicId;
-
-	/**
-	 * Assujetti à la TVA : si faux, la TVA payée sur les achats n'est pas récupérable et doit
-	 * entrer dans le coût d'acquisition du stock (voir AchatService). Vrai par défaut (régime réel).
-	 */
-	@Default
-	private boolean assujettiTva = true;
-
-	/** "Réel" | "Forfaitaire" | "Suspension TVA" — informatif, utilisé dans le rapport fiscal. */
-	@Default
-	private String regimeFiscal = "Réel";
 }

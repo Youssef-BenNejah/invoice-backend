@@ -8,6 +8,8 @@ import com.harmoniedev.api.company.domain.dto.response.CompanyResponse;
 import com.harmoniedev.api.company.service.CompanyService;
 import com.harmoniedev.api.currency.domain.dto.response.CurrencyResponse;
 import com.harmoniedev.api.currency.service.CurrencyService;
+import com.harmoniedev.api.fournisseur.domain.dto.response.FournisseurResponse;
+import com.harmoniedev.api.fournisseur.service.FournisseurService;
 import com.harmoniedev.api.invoice.domain.dto.request.InvoiceImportRequest;
 import com.harmoniedev.api.invoice.domain.dto.request.InvoiceImportRowRequest;
 import com.harmoniedev.api.invoice.domain.dto.request.InvoiceItemRequest;
@@ -20,7 +22,6 @@ import com.harmoniedev.api.invoice.domain.dto.response.InvoiceResponse;
 import com.harmoniedev.api.invoice.domain.model.InvoiceDocument;
 import com.harmoniedev.api.invoice.domain.model.InvoiceItemDocument;
 import com.harmoniedev.api.invoice.repository.InvoiceRepository;
-import com.harmoniedev.api.mail.MailService;
 import com.harmoniedev.api.pdf.InvoicePdfService;
 import com.harmoniedev.api.plan.service.PlanUsageService;
 import com.harmoniedev.api.stock.domain.dto.response.StockResponse;
@@ -43,7 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class InvoiceService {
-	private static final Set<String> VALID_PAYMENT_STATUSES = Set.of("impayé", "Partiellement payé", "Payé", "Retard");
+	private static final Set<String> VALID_PAYMENT_STATUSES = Set.of("impayé", "Partiellement payé", "Payé");
 
 	/** Only these document types represent goods actually leaving — a Devis is just a quote. */
 	private static final Set<String> STOCK_MOVING_STATUSES = Set.of("Facture", "Bon de livraison");
@@ -51,11 +52,11 @@ public class InvoiceService {
 	private final InvoiceRepository repository;
 	private final ClientService clientService;
 	private final ClientRepository clientRepository;
+	private final FournisseurService fournisseurService;
 	private final CurrencyService currencyService;
 	private final TaxRepository taxRepository;
 	private final CompanyService companyService;
 	private final InvoicePdfService invoicePdfService;
-	private final MailService mailService;
 	private final PlanUsageService planUsageService;
 	private final CloudinaryService cloudinaryService;
 	private final StockService stockService;
@@ -64,22 +65,22 @@ public class InvoiceService {
 			InvoiceRepository repository,
 			ClientService clientService,
 			ClientRepository clientRepository,
+			FournisseurService fournisseurService,
 			CurrencyService currencyService,
 			TaxRepository taxRepository,
 			CompanyService companyService,
 			InvoicePdfService invoicePdfService,
-			MailService mailService,
 			PlanUsageService planUsageService,
 			CloudinaryService cloudinaryService,
 			StockService stockService) {
 		this.repository = repository;
 		this.clientService = clientService;
 		this.clientRepository = clientRepository;
+		this.fournisseurService = fournisseurService;
 		this.currencyService = currencyService;
 		this.taxRepository = taxRepository;
 		this.companyService = companyService;
 		this.invoicePdfService = invoicePdfService;
-		this.mailService = mailService;
 		this.planUsageService = planUsageService;
 		this.cloudinaryService = cloudinaryService;
 		this.stockService = stockService;
@@ -96,14 +97,15 @@ public class InvoiceService {
 		String type = request.getType() != null && !request.getType().isBlank() ? request.getType() : "Standard";
 		int year = Year.parse(request.getDate().substring(0, 4)).getValue();
 
-		clientService.get(request.getClientId());
+		assertParty(type, request.getClientId(), request.getFournisseurId());
 		currencyService.get(request.getCurrencyId());
 
 		List<InvoiceItemDocument> items = buildItems(request.getItems());
 		Totals totals = computeTotals(items, request.getTimbre());
 
 		InvoiceDocument doc = InvoiceDocument.builder()
-				.clientId(request.getClientId())
+				.clientId(isAchat(type) ? null : request.getClientId())
+				.fournisseurId(isAchat(type) ? request.getFournisseurId() : null)
 				.currencyId(request.getCurrencyId())
 				.number(nextNumber(type, year))
 				.year(year)
@@ -112,8 +114,6 @@ public class InvoiceService {
 				.type(type)
 				.isConverted(false)
 				.date(request.getDate())
-				.expirationDate(request.getExpirationDate())
-				.note(request.getNote())
 				.items(items)
 				.timbre(request.getTimbre())
 				.subtotal(totals.subtotal())
@@ -211,8 +211,6 @@ public class InvoiceService {
 				.type(type)
 				.isConverted(false)
 				.date(row.getDate())
-				.expirationDate(row.getDate())
-				.note(row.getNote())
 				.items(List.of())
 				.timbre(0)
 				.subtotal(total)
@@ -254,7 +252,7 @@ public class InvoiceService {
 
 	public InvoiceResponse update(String id, InvoiceRequest request) {
 		InvoiceDocument doc = findOrThrow(id);
-		clientService.get(request.getClientId());
+		assertParty(doc.getType(), request.getClientId(), request.getFournisseurId());
 		currencyService.get(request.getCurrencyId());
 
 		List<InvoiceItemDocument> items = buildItems(request.getItems());
@@ -264,12 +262,14 @@ public class InvoiceService {
 		// a VENTE reversal is always order-safe, so this is never blocked.
 		reverseStockIfApplied(doc, doc.getCreatedBy());
 
-		doc.setClientId(request.getClientId());
+		if (isAchat(doc.getType())) {
+			doc.setFournisseurId(request.getFournisseurId());
+		} else {
+			doc.setClientId(request.getClientId());
+		}
 		doc.setCurrencyId(request.getCurrencyId());
 		doc.setStatus(request.getStatus());
 		doc.setDate(request.getDate());
-		doc.setExpirationDate(request.getExpirationDate());
-		doc.setNote(request.getNote());
 		doc.setItems(items);
 		doc.setTimbre(request.getTimbre());
 		doc.setSubtotal(totals.subtotal());
@@ -296,6 +296,7 @@ public class InvoiceService {
 		planUsageService.assertCanCreateInvoice(source.getCreatedBy());
 		InvoiceDocument copy = InvoiceDocument.builder()
 				.clientId(source.getClientId())
+				.fournisseurId(source.getFournisseurId())
 				.currencyId(source.getCurrencyId())
 				.number(nextNumber(source.getType(), source.getYear()))
 				.year(source.getYear())
@@ -304,8 +305,6 @@ public class InvoiceService {
 				.type(source.getType())
 				.isConverted(false)
 				.date(source.getDate())
-				.expirationDate(source.getExpirationDate())
-				.note(source.getNote())
 				.items(source.getItems().stream()
 						.map(it -> InvoiceItemDocument.builder()
 								.id(UUID.randomUUID().toString())
@@ -350,6 +349,7 @@ public class InvoiceService {
 
 		InvoiceDocument standard = InvoiceDocument.builder()
 				.clientId(source.getClientId())
+				.fournisseurId(source.getFournisseurId())
 				.currencyId(source.getCurrencyId())
 				.number(nextNumber("Standard", source.getYear()))
 				.year(source.getYear())
@@ -358,8 +358,6 @@ public class InvoiceService {
 				.type("Standard")
 				.isConverted(false)
 				.date(source.getDate())
-				.expirationDate(source.getExpirationDate())
-				.note(source.getNote())
 				.items(source.getItems().stream()
 						.map(it -> InvoiceItemDocument.builder()
 								.id(UUID.randomUUID().toString())
@@ -396,7 +394,7 @@ public class InvoiceService {
 	public void applyPayment(String invoiceId, double newPaidAmount) {
 		InvoiceDocument doc = findOrThrow(invoiceId);
 		doc.setPaidAmount(newPaidAmount);
-		doc.setPaymentStatus(derivePaymentStatus(newPaidAmount, doc.getTotal(), doc.getExpirationDate()));
+		doc.setPaymentStatus(derivePaymentStatus(newPaidAmount, doc.getTotal()));
 		repository.save(doc);
 	}
 
@@ -430,7 +428,7 @@ public class InvoiceService {
 				CompanyResponse company = companyService.getOrCreate(findOrThrow(invoice.getId()).getCreatedBy());
 				byte[] pdf = invoicePdfService.generateInvoicePdf(invoice, company);
 				String label = invoice.getStatus() + " " + invoice.getNumber() + "/" + invoice.getYear();
-				String who = clientName(invoice.getClient());
+				String who = invoice.getClient() != null ? clientName(invoice.getClient()) : fournisseurName(invoice.getFournisseur());
 				String fileName = (label + (who.isBlank() ? "" : "-" + who) + ".pdf").replace(" ", "-").replace("/", "-");
 				zip.putNextEntry(new java.util.zip.ZipEntry(fileName));
 				zip.write(pdf);
@@ -442,24 +440,8 @@ public class InvoiceService {
 		return out.toByteArray();
 	}
 
-	/** Emails the invoice PDF to the client (or an override address). Defaults to the client's own email. */
-	public void sendByEmail(String id, String overrideEmail) {
-		InvoiceResponse invoice = get(id);
-		String toEmail = overrideEmail != null && !overrideEmail.isBlank() ? overrideEmail : clientEmail(invoice.getClient());
-		if (toEmail == null || toEmail.isBlank()) {
-			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "No recipient e-mail available for this client");
-		}
-		byte[] pdf = renderPdf(id);
-		String label = invoice.getStatus() + " " + invoice.getNumber() + "/" + invoice.getYear();
-		String fileName = label.replace(" ", "-").replace("/", "-") + ".pdf";
-		mailService.sendInvoiceEmail(toEmail, clientName(invoice.getClient()), label, pdf, fileName);
-	}
-
-	private static String clientEmail(ClientResponse client) {
-		if (client == null) return null;
-		if (client.getPerson() != null) return client.getPerson().getEmail();
-		if (client.getEntreprise() != null) return client.getEntreprise().getEmail();
-		return null;
+	private static String fournisseurName(FournisseurResponse fournisseur) {
+		return fournisseur == null ? "" : fournisseur.getNom();
 	}
 
 	private static String clientName(ClientResponse client) {
@@ -512,13 +494,33 @@ public class InvoiceService {
 	private record Totals(double subtotal, double taxAmount, double total) {
 	}
 
-	private boolean isStockMoving(InvoiceDocument doc) {
-		return "Standard".equals(doc.getType()) && STOCK_MOVING_STATUSES.contains(doc.getStatus());
+	private static boolean isAchat(String type) {
+		return "Achat".equals(type);
 	}
 
-	/** Pre-flight check so a sale with insufficient stock never gets saved in the first place. */
+	private boolean isStockMoving(InvoiceDocument doc) {
+		boolean direction = "Standard".equals(doc.getType()) || isAchat(doc.getType());
+		return direction && STOCK_MOVING_STATUSES.contains(doc.getStatus());
+	}
+
+	/** Validates whichever party the invoice type requires, and only that one. */
+	private void assertParty(String type, String clientId, String fournisseurId) {
+		if (isAchat(type)) {
+			if (fournisseurId == null || fournisseurId.isBlank()) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "fournisseurId is required for a Facture Achat");
+			}
+			fournisseurService.get(fournisseurId);
+		} else {
+			if (clientId == null || clientId.isBlank()) {
+				throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "clientId is required");
+			}
+			clientService.get(clientId);
+		}
+	}
+
+	/** Pre-flight check so a sale with insufficient stock never gets saved in the first place — an achat can never be "insufficient". */
 	private void assertStockAvailable(InvoiceDocument doc) {
-		if (!isStockMoving(doc)) return;
+		if (!isStockMoving(doc) || isAchat(doc.getType())) return;
 		for (InvoiceItemDocument item : doc.getItems()) {
 			if (item.getProductId() == null || item.getProductId().isBlank()) continue;
 			StockResponse stock = stockService.getStock(item.getProductId());
@@ -530,12 +532,17 @@ public class InvoiceService {
 		}
 	}
 
-	/** Moves stock for every eligible line and flags the invoice. Returns whether anything changed. */
+	/** Moves stock for every eligible line (direction depends on type) and flags the invoice. Returns whether anything changed. */
 	private boolean applyStockIfEligible(InvoiceDocument doc, String actorId) {
 		if (!isStockMoving(doc)) return false;
+		boolean achat = isAchat(doc.getType());
 		for (InvoiceItemDocument item : doc.getItems()) {
 			if (item.getProductId() == null || item.getProductId().isBlank()) continue;
-			stockService.recordVenteExit(item.getProductId(), item.getQuantity(), doc.getId(), actorId);
+			if (achat) {
+				stockService.recordAchatEntry(item.getProductId(), item.getQuantity(), item.getPrice(), doc.getId(), actorId);
+			} else {
+				stockService.recordVenteExit(item.getProductId(), item.getQuantity(), doc.getId(), actorId);
+			}
 		}
 		doc.setStockApplied(true);
 		return true;
@@ -544,23 +551,16 @@ public class InvoiceService {
 	/** Reverses any stock this invoice previously moved. Returns whether anything changed. */
 	private boolean reverseStockIfApplied(InvoiceDocument doc, String actorId) {
 		if (!doc.isStockApplied()) return false;
-		stockService.reverseMovementsForSource(doc.getId(), StockSourceType.FACTURE_VENTE, actorId);
+		StockSourceType sourceType = isAchat(doc.getType()) ? StockSourceType.FACTURE_ACHAT : StockSourceType.FACTURE_VENTE;
+		stockService.reverseMovementsForSource(doc.getId(), sourceType, actorId);
 		doc.setStockApplied(false);
 		return true;
 	}
 
-	private static String derivePaymentStatus(double paid, double total, String expirationDate) {
+	private static String derivePaymentStatus(double paid, double total) {
 		if (paid >= total && total > 0) return "Payé";
-		boolean overdue = false;
-		try {
-			overdue = expirationDate != null && LocalDate.parse(expirationDate).isBefore(LocalDate.now());
-		} catch (Exception ignored) {
-			// unparsable/blank due date — treat as not overdue
-		}
-		if (paid <= 0) {
-			return overdue ? "Retard" : "impayé";
-		}
-		return overdue ? "Retard" : "Partiellement payé";
+		if (paid <= 0) return "impayé";
+		return "Partiellement payé";
 	}
 
 	private static double round2(double value) {
@@ -568,12 +568,22 @@ public class InvoiceService {
 	}
 
 	private InvoiceResponse toResponse(InvoiceDocument doc) {
-		ClientResponse client;
+		ClientResponse client = null;
+		FournisseurResponse fournisseur = null;
 		CurrencyResponse currency;
-		try {
-			client = clientService.get(doc.getClientId());
-		} catch (ResponseStatusException ex) {
-			client = null;
+		if (doc.getClientId() != null && !doc.getClientId().isBlank()) {
+			try {
+				client = clientService.get(doc.getClientId());
+			} catch (ResponseStatusException ex) {
+				client = null;
+			}
+		}
+		if (doc.getFournisseurId() != null && !doc.getFournisseurId().isBlank()) {
+			try {
+				fournisseur = fournisseurService.get(doc.getFournisseurId());
+			} catch (ResponseStatusException ex) {
+				fournisseur = null;
+			}
 		}
 		try {
 			currency = currencyService.get(doc.getCurrencyId());
@@ -583,6 +593,7 @@ public class InvoiceService {
 		return InvoiceResponse.builder()
 				.id(doc.getId())
 				.client(client)
+				.fournisseur(fournisseur)
 				.number(doc.getNumber())
 				.year(doc.getYear())
 				.currency(currency)
@@ -591,8 +602,6 @@ public class InvoiceService {
 				.type(doc.getType())
 				.converted(doc.isConverted())
 				.date(doc.getDate())
-				.expirationDate(doc.getExpirationDate())
-				.note(doc.getNote())
 				.items(doc.getItems().stream()
 						.map(it -> InvoiceItemResponse.builder()
 								.id(it.getId())

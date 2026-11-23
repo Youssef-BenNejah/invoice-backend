@@ -1,28 +1,21 @@
 package com.harmoniedev.api.report.service;
 
-import com.harmoniedev.api.achat.domain.dto.response.AchatResponse;
-import com.harmoniedev.api.achat.service.AchatService;
 import com.harmoniedev.api.common.dto.CurrencyAmount;
-import com.harmoniedev.api.company.domain.dto.response.CompanyResponse;
-import com.harmoniedev.api.company.service.CompanyService;
 import com.harmoniedev.api.expense.domain.dto.response.DepenseResponse;
 import com.harmoniedev.api.expense.service.DepenseService;
 import com.harmoniedev.api.invoice.domain.dto.response.InvoiceItemResponse;
 import com.harmoniedev.api.invoice.domain.dto.response.InvoiceResponse;
 import com.harmoniedev.api.invoice.service.InvoiceService;
 import com.harmoniedev.api.pdf.ReportPdfService;
-import com.harmoniedev.api.report.domain.dto.response.FiscalReportResponse;
 import com.harmoniedev.api.report.domain.dto.response.ReportOverviewResponse;
 import com.harmoniedev.api.report.domain.dto.response.TopClientResponse;
 import com.harmoniedev.api.report.domain.dto.response.TopServiceResponse;
-import com.harmoniedev.api.stock.service.StockService;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.stream.Collectors;
 import org.springframework.stereotype.Service;
 
@@ -36,29 +29,14 @@ import org.springframework.stereotype.Service;
 public class ReportService {
 	private static final String DEFAULT_CURRENCY = "TND";
 
-	/** Same "a sale actually happened" rule InvoiceService uses — a Devis is just a quote. */
-	private static final Set<String> STOCK_MOVING_STATUSES = Set.of("Facture", "Bon de livraison");
-
 	private final InvoiceService invoiceService;
 	private final DepenseService depenseService;
 	private final ReportPdfService reportPdfService;
-	private final AchatService achatService;
-	private final CompanyService companyService;
-	private final StockService stockService;
 
-	public ReportService(
-			InvoiceService invoiceService,
-			DepenseService depenseService,
-			ReportPdfService reportPdfService,
-			AchatService achatService,
-			CompanyService companyService,
-			StockService stockService) {
+	public ReportService(InvoiceService invoiceService, DepenseService depenseService, ReportPdfService reportPdfService) {
 		this.invoiceService = invoiceService;
 		this.depenseService = depenseService;
 		this.reportPdfService = reportPdfService;
-		this.achatService = achatService;
-		this.companyService = companyService;
-		this.stockService = stockService;
 	}
 
 	public byte[] exportPdf(String dateFrom, String dateTo, String currency) {
@@ -141,45 +119,6 @@ public class ReportService {
 						.totalSold(round2(e.getValue()))
 						.build())
 				.toList();
-	}
-
-	/**
-	 * Indicative TVA/retenue-à-la-source/CMV figures for a period — a starting point for the
-	 * monthly VAT declaration, not a substitute for a comptable's sign-off.
-	 */
-	public FiscalReportResponse fiscal(String dateFrom, String dateTo, String actorId) {
-		CompanyResponse company = companyService.getOrCreate(actorId);
-		boolean assujetti = company.isAssujettiTva();
-
-		List<InvoiceResponse> sales = standardInvoicesInRange(dateFrom, dateTo).stream()
-				.filter(inv -> STOCK_MOVING_STATUSES.contains(inv.getStatus()))
-				.toList();
-		double tvaCollectee = round2(sales.stream().mapToDouble(InvoiceResponse::getTaxAmount).sum());
-
-		List<AchatResponse> achats = achatsInRange(dateFrom, dateTo);
-		double achatTaxTotal = round2(achats.stream().mapToDouble(AchatResponse::getTaxAmount).sum());
-		double tvaDeductible = assujetti ? achatTaxTotal : 0;
-		double tvaNonRecuperable = assujetti ? 0 : achatTaxTotal;
-		double retenueSourceTotal = round2(achats.stream().mapToDouble(AchatResponse::getRetenueSourceAmount).sum());
-
-		return FiscalReportResponse.builder()
-				.dateFrom(dateFrom)
-				.dateTo(dateTo)
-				.assujettiTva(assujetti)
-				.regimeFiscal(company.getRegimeFiscal())
-				.tvaCollectee(tvaCollectee)
-				.tvaDeductible(tvaDeductible)
-				.tvaNonRecuperable(tvaNonRecuperable)
-				.soldeTva(round2(tvaCollectee - tvaDeductible))
-				.retenueSourceTotal(retenueSourceTotal)
-				.cmv(stockService.computeCmv(dateFrom, dateTo))
-				.build();
-	}
-
-	private List<AchatResponse> achatsInRange(String dateFrom, String dateTo) {
-		LocalDate from = parseOrNull(dateFrom);
-		LocalDate to = parseOrNull(dateTo);
-		return achatService.list().stream().filter(a -> inRange(a.getDate(), from, to)).toList();
 	}
 
 	private List<InvoiceResponse> standardInvoicesInRange(String dateFrom, String dateTo) {

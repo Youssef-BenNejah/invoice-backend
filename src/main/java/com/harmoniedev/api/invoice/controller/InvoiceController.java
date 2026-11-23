@@ -3,7 +3,6 @@ package com.harmoniedev.api.invoice.controller;
 import com.harmoniedev.api.common.dto.ApiResponse;
 import com.harmoniedev.api.invoice.domain.dto.request.InvoiceImportRequest;
 import com.harmoniedev.api.invoice.domain.dto.request.InvoiceRequest;
-import com.harmoniedev.api.invoice.domain.dto.request.SendInvoiceRequest;
 import com.harmoniedev.api.invoice.domain.dto.response.DocumentUploadResponse;
 import com.harmoniedev.api.invoice.domain.dto.response.InvoiceImportResponse;
 import com.harmoniedev.api.invoice.domain.dto.response.InvoiceResponse;
@@ -109,13 +108,6 @@ public class InvoiceController {
 				.contentType(MediaType.APPLICATION_PDF)
 				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")
 				.body(pdf);
-	}
-
-	@PostMapping("/{id}/send")
-	public ResponseEntity<ApiResponse<Void>> send(
-			@PathVariable String id, @RequestBody(required = false) SendInvoiceRequest request) {
-		service.sendByEmail(id, request != null ? request.getEmail() : null);
-		return ResponseEntity.ok(ApiResponse.success("Invoice e-mailed", null));
 	}
 
 	@GetMapping("/export/summary")

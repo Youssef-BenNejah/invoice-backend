@@ -21,7 +21,13 @@ import org.springframework.data.mongodb.core.mapping.Document;
 public class InvoiceDocument {
 	@Id
 	private String id;
+
+	/** Set for type Standard/Proforma (sale). Null for type Achat. */
 	private String clientId;
+
+	/** Set for type Achat (purchase). Null for Standard/Proforma. */
+	private String fournisseurId;
+
 	private String currencyId;
 	private int number;
 	private int year;
@@ -29,19 +35,17 @@ public class InvoiceDocument {
 	/** "Facture" | "Devis" | "Bon de livraison" — the printed document type, not a workflow state. */
 	private String status;
 
-	/** "impayé" | "Partiellement payé" | "Payé" | "Retard" — server-derived from paidAmount/total/dueDate. */
+	/** "impayé" | "Partiellement payé" | "Payé" — server-derived from paidAmount/total. */
 	@Default
 	private String paymentStatus = "impayé";
 
-	/** "Standard" | "Proforma" — immutable after creation. */
+	/** "Standard" (vente) | "Proforma" (devis client) | "Achat" (achat fournisseur) — immutable after creation. */
 	private String type;
 
 	@Default
 	private boolean isConverted = false;
 
 	private String date;
-	private String expirationDate;
-	private String note;
 
 	@Default
 	private List<InvoiceItemDocument> items = List.of();

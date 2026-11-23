@@ -3,6 +3,7 @@ package com.harmoniedev.api.invoice.domain.dto.response;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.harmoniedev.api.client.domain.dto.response.ClientResponse;
 import com.harmoniedev.api.currency.domain.dto.response.CurrencyResponse;
+import com.harmoniedev.api.fournisseur.domain.dto.response.FournisseurResponse;
 import java.time.Instant;
 import java.util.List;
 import lombok.AllArgsConstructor;
@@ -19,6 +20,7 @@ import lombok.Setter;
 public class InvoiceResponse {
 	private String id;
 	private ClientResponse client;
+	private FournisseurResponse fournisseur;
 	private int number;
 	private int year;
 	private CurrencyResponse currency;
@@ -28,8 +30,6 @@ public class InvoiceResponse {
 	@JsonProperty("isConverted")
 	private boolean converted;
 	private String date;
-	private String expirationDate;
-	private String note;
 	private List<InvoiceItemResponse> items;
 	private double timbre;
 	private double subtotal;

@@ -3,6 +3,8 @@ package com.harmoniedev.api.config;
 import com.harmoniedev.api.audit.domain.model.AuditLogDocument;
 import com.harmoniedev.api.auth.domain.model.RefreshTokenDocument;
 import com.harmoniedev.api.auth.domain.model.UserDocument;
+import com.harmoniedev.api.sync.domain.model.SyncConflictDocument;
+import com.harmoniedev.api.sync.domain.model.SyncOutboxDocument;
 import java.util.concurrent.TimeUnit;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -35,5 +37,16 @@ public class MongoIndexInitializer {
 				.expire(7776000L, TimeUnit.SECONDS).named("audit_logs_ttl"));
 		auditIndexes.createIndex(new Index().on("userId", Sort.Direction.ASC).on("createdAt", Sort.Direction.ASC)
 				.named("audit_logs_user_created"));
+
+		IndexOperations syncOutboxIndexes = mongoTemplate.indexOps(SyncOutboxDocument.class);
+		syncOutboxIndexes.createIndex(new Index().on("sequence", Sort.Direction.ASC).unique().named("sync_outbox_sequence_unique"));
+		syncOutboxIndexes.createIndex(new Index().on("ownerId", Sort.Direction.ASC).on("sequence", Sort.Direction.ASC)
+				.named("sync_outbox_owner_sequence"));
+		syncOutboxIndexes.createIndex(new Index().on("collectionName", Sort.Direction.ASC).on("documentId", Sort.Direction.ASC)
+				.on("sequence", Sort.Direction.ASC).named("sync_outbox_collection_document_sequence"));
+
+		IndexOperations syncConflictIndexes = mongoTemplate.indexOps(SyncConflictDocument.class);
+		syncConflictIndexes.createIndex(new Index().on("acknowledged", Sort.Direction.ASC).on("created", Sort.Direction.DESC)
+				.named("sync_conflicts_acknowledged_created"));
 	}
 }

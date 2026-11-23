@@ -19,7 +19,12 @@ public class ProductResponse {
 	private double price;
 	private String description;
 	private String reference;
-	private String categoryId;
+	private String defaultTaxId;
+	private double longueur;
+	private double largeur;
+	private double hauteur;
+	private double prixAchat;
+	private double margeGain;
 	private String createdBy;
 	private Instant created;
 	private double stockQuantity;

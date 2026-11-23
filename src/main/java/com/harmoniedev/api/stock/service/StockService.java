@@ -2,14 +2,24 @@ package com.harmoniedev.api.stock.service;
 
 import com.harmoniedev.api.catalog.domain.model.ProductDocument;
 import com.harmoniedev.api.catalog.repository.ProductRepository;
+import com.harmoniedev.api.stock.domain.dto.response.StockDashboardItemResponse;
+import com.harmoniedev.api.stock.domain.dto.response.StockDashboardResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockMovementResponse;
+import com.harmoniedev.api.stock.domain.dto.response.StockReportItemResponse;
+import com.harmoniedev.api.stock.domain.dto.response.StockReportResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockResponse;
 import com.harmoniedev.api.stock.domain.model.StockMovementDocument;
 import com.harmoniedev.api.stock.domain.model.StockMovementType;
 import com.harmoniedev.api.stock.domain.model.StockSourceType;
 import com.harmoniedev.api.stock.repository.StockMovementRepository;
-import java.time.LocalDate;
+import com.harmoniedev.api.tax.domain.model.TaxDocument;
+import com.harmoniedev.api.tax.repository.TaxRepository;
+import java.time.Instant;
+import java.time.LocalTime;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -26,10 +36,12 @@ public class StockService {
 
 	private final StockMovementRepository movementRepository;
 	private final ProductRepository productRepository;
+	private final TaxRepository taxRepository;
 
-	public StockService(StockMovementRepository movementRepository, ProductRepository productRepository) {
+	public StockService(StockMovementRepository movementRepository, ProductRepository productRepository, TaxRepository taxRepository) {
 		this.movementRepository = movementRepository;
 		this.productRepository = productRepository;
+		this.taxRepository = taxRepository;
 	}
 
 	public StockResponse getStock(String productId) {
@@ -39,32 +51,6 @@ public class StockService {
 	public List<StockMovementResponse> listMovements(String productId) {
 		findProductOrThrow(productId);
 		return movementRepository.findByProductIdOrderByCreatedDesc(productId).stream().map(this::toResponse).toList();
-	}
-
-	/** CMV (coût des marchandises vendues) over a period: every VENTE movement valued at the CMP it was sold at. */
-	public double computeCmv(String dateFrom, String dateTo) {
-		LocalDate from = parseOrNull(dateFrom);
-		LocalDate to = parseOrNull(dateTo);
-		return round(movementRepository.findAll().stream()
-				.filter(m -> m.getType() == StockMovementType.VENTE)
-				.filter(m -> inRange(m.getCreated(), from, to))
-				.mapToDouble(m -> Math.abs(m.getQuantityDelta()) * m.getUnitCost())
-				.sum());
-	}
-
-	private static LocalDate parseOrNull(String date) {
-		if (date == null || date.isBlank()) return null;
-		try {
-			return LocalDate.parse(date);
-		} catch (Exception ex) {
-			return null;
-		}
-	}
-
-	private static boolean inRange(java.time.Instant instant, LocalDate from, LocalDate to) {
-		if (instant == null) return false;
-		LocalDate date = instant.atZone(java.time.ZoneOffset.UTC).toLocalDate();
-		return (from == null || !date.isBefore(from)) && (to == null || !date.isAfter(to));
 	}
 
 	/** Facture Achat validated: adds {@code quantity} at {@code unitCostHT}, recomputing the CMP. */
@@ -126,15 +112,24 @@ public class StockService {
 	}
 
 	/**
-	 * Reverses every movement recorded for one source document (an Achat deleted, or a sales
-	 * Facture deleted/edited out of stock-moving state). Processed newest-first: a VENTE reversal is
-	 * always safe; an ACHAT reversal is only safe while it is still the latest movement for its
-	 * product (otherwise a later movement already used the CMP it set, and undoing it would corrupt
-	 * the valorisation) — in that case this throws and nothing is changed for that product.
+	 * Reverses the currently-live effect of one source document (an invoice deleted, or edited out
+	 * of stock-moving state) on each product it touched. An invoice that's been edited before may
+	 * have several historical movements under the same sourceId — an ACHAT/VENTE immediately
+	 * superseded by its own ANNULATION_* during that earlier edit, then a fresh one applied — so this
+	 * only reverses the most recent movement per product, which is the only one still "live"; older,
+	 * already-superseded entries for the same product are left alone as pure history. Processed
+	 * newest-first: a VENTE reversal is always safe; an ACHAT reversal is only safe while it is still
+	 * the latest movement for its product (otherwise a later movement already used the CMP it set,
+	 * and undoing it would corrupt the valorisation) — in that case this throws and nothing is
+	 * changed for that product.
 	 */
 	public void reverseMovementsForSource(String sourceId, StockSourceType sourceType, String actorId) {
 		List<StockMovementDocument> movements = movementRepository.findBySourceIdAndSourceTypeOrderByCreatedDesc(sourceId, sourceType);
+		java.util.Map<String, StockMovementDocument> latestPerProduct = new java.util.LinkedHashMap<>();
 		for (StockMovementDocument movement : movements) {
+			latestPerProduct.putIfAbsent(movement.getProductId(), movement);
+		}
+		for (StockMovementDocument movement : latestPerProduct.values()) {
 			if (movement.getType() == StockMovementType.ACHAT) {
 				reverseAchatMovement(movement, actorId);
 			} else if (movement.getType() == StockMovementType.VENTE) {
@@ -173,6 +168,97 @@ public class StockService {
 				.createdBy(actorId)
 				.build());
 		return toStockResponse(product);
+	}
+
+	/**
+	 * Stock ledger: one line per article that has had at least one Facture Achat applied — each
+	 * achat/vente since then keeps that line's quantity and valorisation (HT and TTC, at CMP) up
+	 * to date. An article never bought in is simply absent, not shown at zero.
+	 */
+	public StockDashboardResponse dashboard() {
+		List<StockDashboardItemResponse> items = productRepository.findAll().stream()
+				.filter(product -> movementRepository.existsByProductId(product.getId()))
+				.map(this::toDashboardItem)
+				.toList();
+		double totalHT = round(items.stream().mapToDouble(StockDashboardItemResponse::getTotalHT).sum());
+		double totalTTC = round(items.stream().mapToDouble(StockDashboardItemResponse::getTotalTTC).sum());
+		return StockDashboardResponse.builder()
+				.totalValueHT(totalHT)
+				.totalValueTTC(totalTTC)
+				.items(items)
+				.build();
+	}
+
+	/**
+	 * Stock remaining at the end of a given month: for each article that had any stock movement by
+	 * then, the quantity and CMP as left by its last movement at or before that month's last instant.
+	 * An article with no movement yet by that date is simply absent, not shown at zero. Tax rates are
+	 * applied as currently configured (the ledger does not keep a historical tax rate per movement).
+	 */
+	public StockReportResponse report(int year, int month) {
+		Instant cutoff = YearMonth.of(year, month).atEndOfMonth().atTime(LocalTime.MAX).atZone(ZoneId.systemDefault()).toInstant();
+		List<StockReportItemResponse> items = productRepository.findAll().stream()
+				.filter(product -> movementRepository.existsByProductId(product.getId()))
+				.map(product -> toReportItem(product, cutoff))
+				.filter(java.util.Objects::nonNull)
+				.toList();
+		double totalHT = round(items.stream().mapToDouble(StockReportItemResponse::getTotalHT).sum());
+		double totalTTC = round(items.stream().mapToDouble(StockReportItemResponse::getTotalTTC).sum());
+		return StockReportResponse.builder()
+				.year(year)
+				.month(month)
+				.totalHT(totalHT)
+				.totalTVA(round(totalTTC - totalHT))
+				.totalTTC(totalTTC)
+				.items(items)
+				.build();
+	}
+
+	private StockReportItemResponse toReportItem(ProductDocument product, Instant cutoff) {
+		Optional<StockMovementDocument> asOf =
+				movementRepository.findTopByProductIdAndCreatedLessThanEqualOrderByCreatedDesc(product.getId(), cutoff);
+		if (asOf.isEmpty()) {
+			return null;
+		}
+		StockMovementDocument movement = asOf.get();
+		TaxDocument tax = (product.getDefaultTaxId() != null && !product.getDefaultTaxId().isBlank())
+				? taxRepository.findById(product.getDefaultTaxId()).orElse(null) : null;
+		double taxRate = tax != null ? tax.getTaxvalue() : 0;
+		double quantite = movement.getQuantityAfter();
+		double puHT = movement.getAverageCostAfter();
+		double puTTC = round(puHT * (1 + taxRate / 100));
+		double totalHT = round(quantite * puHT);
+		double totalTTC = round(quantite * puTTC);
+		return StockReportItemResponse.builder()
+				.productId(product.getId())
+				.article(product.getName())
+				.ref(product.getReference())
+				.quantite(quantite)
+				.puHT(puHT)
+				.totalHT(totalHT)
+				.puTTC(puTTC)
+				.totalTTC(totalTTC)
+				.build();
+	}
+
+	private StockDashboardItemResponse toDashboardItem(ProductDocument product) {
+		TaxDocument tax = (product.getDefaultTaxId() != null && !product.getDefaultTaxId().isBlank())
+				? taxRepository.findById(product.getDefaultTaxId()).orElse(null) : null;
+		double taxRate = tax != null ? tax.getTaxvalue() : 0;
+		double puHT = product.getAverageCost();
+		double puTTC = round(puHT * (1 + taxRate / 100));
+		double totalHT = round(product.getStockQuantity() * puHT);
+		double totalTTC = round(product.getStockQuantity() * puTTC);
+		return StockDashboardItemResponse.builder()
+				.productId(product.getId())
+				.article(product.getName())
+				.ref(product.getReference())
+				.quantite(product.getStockQuantity())
+				.puHT(puHT)
+				.totalHT(totalHT)
+				.puTTC(puTTC)
+				.totalTTC(totalTTC)
+				.build();
 	}
 
 	private void reverseAchatMovement(StockMovementDocument movement, String actorId) {

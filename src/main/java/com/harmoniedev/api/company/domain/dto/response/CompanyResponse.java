@@ -25,6 +25,4 @@ public class CompanyResponse {
 	private String vatNumber;
 	private String registrationNumber;
 	private String logoUrl;
-	private boolean assujettiTva;
-	private String regimeFiscal;
 }

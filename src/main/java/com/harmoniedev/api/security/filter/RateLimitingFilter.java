@@ -4,30 +4,22 @@ import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
 import io.github.bucket4j.Refill;
-import io.github.bucket4j.distributed.proxy.ProxyManager;
-import io.github.bucket4j.BucketConfiguration;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.time.Duration;
-import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.http.HttpMethod;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+/** In-process rate limiting (no Redis) — fine for a single-instance desktop deployment. */
 @Component
 public class RateLimitingFilter extends OncePerRequestFilter {
-	private final ProxyManager<byte[]> proxyManager;
-	private final BucketConfiguration configuration;
-
-	public RateLimitingFilter(ProxyManager<byte[]> proxyManager) {
-		this.proxyManager = proxyManager;
-		this.configuration = BucketConfiguration.builder()
-				.addLimit(Bandwidth.classic(5, Refill.greedy(5, Duration.ofMinutes(1))))
-				.build();
-	}
+	private final Map<String, Bucket> buckets = new ConcurrentHashMap<>();
 
 	@Override
 	protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -39,8 +31,9 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
 		String clientIp = resolveClientIp(request);
-		byte[] bucketKey = ("login:" + clientIp).getBytes(StandardCharsets.UTF_8);
-		Bucket bucket = proxyManager.builder().build(bucketKey, configuration);
+		Bucket bucket = buckets.computeIfAbsent("login:" + clientIp, key -> Bucket.builder()
+				.addLimit(Bandwidth.classic(5, Refill.greedy(5, Duration.ofMinutes(1))))
+				.build());
 		ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
 		if (!probe.isConsumed()) {
 			response.setStatus(429);

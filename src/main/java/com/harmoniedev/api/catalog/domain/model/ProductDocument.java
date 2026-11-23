@@ -25,7 +25,21 @@ public class ProductDocument {
 	private double price;
 	private String description;
 	private String reference;
-	private String categoryId;
+
+	/** Tax (TVA) applied by default when this product is picked on an invoice line. */
+	private String defaultTaxId;
+
+	private double longueur;
+	private double largeur;
+	private double hauteur;
+
+	/** Cost price — computed and stored on every save as longueur * largeur * hauteur * price. */
+	@Default
+	private double prixAchat = 0;
+
+	/** Target profit margin, as a percentage. */
+	private double margeGain;
+
 	private String createdBy;
 	@CreatedDate
 	private Instant created;

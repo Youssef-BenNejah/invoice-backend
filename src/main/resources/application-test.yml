@@ -1,17 +1,13 @@
 spring:
   application:
-    name: harmonie-dev-api
+    name: invoxa-api
 #  profiles:
 #    active: test
   data:
     mongodb:
       uri: ${TEST_MONGO_URI:mongodb://localhost:27017/test}
-      database: ${TEST_MONGO_DATABASE:harmoniedev_test}
+      database: ${TEST_MONGO_DATABASE:invoxa_test}
       auto-index-creation: false
-    redis:
-      host: ${REDIS_HOST:localhost}
-      port: ${REDIS_PORT:6379}
-      password: ${REDIS_PASSWORD:}
   threads:
     virtual:
       enabled: true
@@ -33,8 +29,8 @@ app:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}
 
 mail:
-  from-address: ${SPRING_MAIL_USERNAME:test@harmonie-dev.tn}
-  from-name: ${MAIL_FROM_NAME:Harmonie-dev}
+  from-address: ${SPRING_MAIL_USERNAME:test@invoxa.tn}
+  from-name: ${MAIL_FROM_NAME:Invoxa}
 
 seed:
   admin-email: ${SEED_ADMIN_EMAIL:}

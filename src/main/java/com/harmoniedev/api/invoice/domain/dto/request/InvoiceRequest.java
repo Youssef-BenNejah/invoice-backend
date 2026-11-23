@@ -17,8 +17,11 @@ import lombok.Setter;
 @AllArgsConstructor
 @Builder
 public class InvoiceRequest {
-	@NotBlank
+	/** Required unless type is Achat (checked in InvoiceService, not here — the two are mutually exclusive). */
 	private String clientId;
+
+	/** Required only when type is Achat. */
+	private String fournisseurId;
 
 	@NotBlank
 	private String currencyId;
@@ -27,16 +30,11 @@ public class InvoiceRequest {
 	@NotBlank
 	private String status;
 
-	/** "Standard" | "Proforma" — only read on create; immutable afterwards. */
+	/** "Standard" | "Proforma" | "Achat" — only read on create; immutable afterwards. */
 	private String type;
 
 	@NotBlank
 	private String date;
-
-	@NotBlank
-	private String expirationDate;
-
-	private String note;
 
 	private double timbre;
 

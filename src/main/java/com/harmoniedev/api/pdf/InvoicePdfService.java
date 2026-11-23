@@ -2,6 +2,7 @@ package com.harmoniedev.api.pdf;
 
 import com.harmoniedev.api.client.domain.dto.response.ClientResponse;
 import com.harmoniedev.api.company.domain.dto.response.CompanyResponse;
+import com.harmoniedev.api.fournisseur.domain.dto.response.FournisseurResponse;
 import com.harmoniedev.api.invoice.domain.dto.response.InvoiceItemResponse;
 import com.harmoniedev.api.invoice.domain.dto.response.InvoiceResponse;
 import com.lowagie.text.Chunk;
@@ -94,14 +95,14 @@ public class InvoicePdfService {
 			docCell.addElement(docType);
 			docCell.addElement(new Paragraph("Date : " + formatDateFr(invoice.getDate()), metaFont));
 			docCell.addElement(new Paragraph("Numéro : # " + invoice.getNumber() + "/" + invoice.getYear(), metaFont));
-			docCell.addElement(new Paragraph("Échéance : " + formatDateFr(invoice.getExpirationDate()), metaFont));
 			meta.addCell(docCell);
 
 			PdfPCell clientCell = borderless();
 			clientCell.setHorizontalAlignment(Element.ALIGN_RIGHT);
-			clientCell.addElement(rightAligned("Facturé à", clientLabelFont));
-			clientCell.addElement(rightAligned(clientLabel(invoice.getClient()), clientNameFont));
-			for (String extra : clientExtraLines(invoice.getClient())) {
+			boolean isAchat = invoice.getFournisseur() != null;
+			clientCell.addElement(rightAligned(isAchat ? "Fournisseur" : "Facturé à", clientLabelFont));
+			clientCell.addElement(rightAligned(isAchat ? fournisseurLabel(invoice.getFournisseur()) : clientLabel(invoice.getClient()), clientNameFont));
+			for (String extra : isAchat ? fournisseurExtraLines(invoice.getFournisseur()) : clientExtraLines(invoice.getClient())) {
 				clientCell.addElement(rightAligned(extra, smallMuted));
 			}
 			meta.addCell(clientCell);
@@ -112,7 +113,7 @@ public class InvoicePdfService {
 			items.setWidthPercentage(100);
 			items.setWidths(new float[] {1f, 3f, 1f, 1.4f, 1.6f, 1.4f});
 			Font headFont = FontFactory.getFont(FontFactory.HELVETICA_BOLD, 9, Color.WHITE);
-			for (String h : new String[] {"Réf", "Article", "Qté", "Prix", "Taxe", "Total"}) {
+			for (String h : new String[] {"Réf", "Article", "Qté", "PU", "TVA", "Total HT"}) {
 				PdfPCell hc = new PdfPCell(new Phrase(h, headFont));
 				hc.setBackgroundColor(NAVY);
 				hc.setPadding(6);
@@ -132,7 +133,7 @@ public class InvoicePdfService {
 				items.addCell(cell(quantity(it.getQuantity()), normalFont, Element.ALIGN_CENTER));
 				items.addCell(cell(money(it.getPrice(), symbol), normalFont, Element.ALIGN_RIGHT));
 				items.addCell(cell(it.getTaxName() == null || it.getTaxName().isBlank() ? "—" : it.getTaxName() + " (" + it.getTaxRate() + "%)", normalFont, Element.ALIGN_RIGHT));
-				items.addCell(cell(money(it.getTotal(), symbol), boldFont, Element.ALIGN_RIGHT));
+				items.addCell(cell(money(it.getQuantity() * it.getPrice(), symbol), boldFont, Element.ALIGN_RIGHT));
 			}
 			document.add(items);
 			document.add(new Paragraph(" "));
@@ -142,16 +143,11 @@ public class InvoicePdfService {
 			totals.setWidthPercentage(45);
 			totals.setHorizontalAlignment(Element.ALIGN_RIGHT);
 			addTotalRow(totals, "Total HT", money(totalHt, symbol), normalFont, boldFont, false);
-			addTotalRow(totals, "Total taxes", money(invoice.getTaxAmount(), symbol), normalFont, boldFont, false);
+			addTotalRow(totals, "Total TVA", money(invoice.getTaxAmount(), symbol), normalFont, boldFont, false);
 			addTotalRow(totals, "Timbre fiscal", money(invoice.getTimbre(), symbol), normalFont, boldFont, false);
 			addTotalRow(totals, "Total TTC", money(invoice.getTotal(), symbol), boldFont, FontFactory.getFont(FontFactory.HELVETICA_BOLD, 11, OCEAN), true);
 			document.add(totals);
 			document.add(new Paragraph(" "));
-
-			if (invoice.getNote() != null && !invoice.getNote().isBlank()) {
-				document.add(new Paragraph("Note : " + invoice.getNote(), smallMuted));
-				document.add(new Paragraph(" "));
-			}
 
 			String currencyName = invoice.getCurrency() != null && invoice.getCurrency().getName() != null && !invoice.getCurrency().getName().isBlank()
 					? invoice.getCurrency().getName()
@@ -161,15 +157,6 @@ public class InvoicePdfService {
 					"La présente facture est arrêtée à la somme de " + amountWords + " " + currencyName + ".",
 					FontFactory.getFont(FontFactory.HELVETICA_OBLIQUE, 9, Color.DARK_GRAY));
 			document.add(amountInWords);
-
-			Paragraph footer = new Paragraph("Facture générée par ordinateur, valable sans signature ni cachet.",
-					FontFactory.getFont(FontFactory.HELVETICA, 8, MUTED));
-			footer.setAlignment(Element.ALIGN_CENTER);
-			footer.setSpacingBefore(24);
-			document.add(footer);
-			Paragraph brand = new Paragraph("Généré avec Harmonie-dev", FontFactory.getFont(FontFactory.HELVETICA, 8, MUTED));
-			brand.setAlignment(Element.ALIGN_CENTER);
-			document.add(brand);
 
 			document.close();
 			return out.toByteArray();
@@ -202,7 +189,9 @@ public class InvoicePdfService {
 			for (InvoiceResponse inv : invoices) {
 				String symbol = inv.getCurrency() != null ? inv.getCurrency().getSymbol() : "";
 				table.addCell(cell((inv.getType().equals("Proforma") ? "PRO-" : "") + inv.getNumber() + "/" + inv.getYear(), rowFont, Element.ALIGN_LEFT));
-				table.addCell(cell(clientLabel(inv.getClient()), rowFont, Element.ALIGN_LEFT));
+				table.addCell(cell(
+						inv.getFournisseur() != null ? fournisseurLabel(inv.getFournisseur()) : clientLabel(inv.getClient()),
+						rowFont, Element.ALIGN_LEFT));
 				table.addCell(cell(formatDate(inv.getDate()), rowFont, Element.ALIGN_LEFT));
 				table.addCell(cell(inv.getStatus(), rowFont, Element.ALIGN_LEFT));
 				table.addCell(cell(inv.getPaymentStatus(), rowFont, Element.ALIGN_LEFT));
@@ -261,13 +250,28 @@ public class InvoicePdfService {
 		return "";
 	}
 
+	private String fournisseurLabel(FournisseurResponse fournisseur) {
+		return fournisseur == null ? "" : fournisseur.getNom();
+	}
+
+	private List<String> fournisseurExtraLines(FournisseurResponse fournisseur) {
+		if (fournisseur == null) return List.of();
+		return java.util.stream.Stream.of(
+				fournisseur.getFisc() != null && !fournisseur.getFisc().isBlank() ? "MF : " + fournisseur.getFisc() : null,
+				fournisseur.getAdresse(),
+				fournisseur.getTelephone() != null && !fournisseur.getTelephone().isBlank() ? "Tél : " + fournisseur.getTelephone() : null)
+				.filter(s -> s != null && !s.isBlank())
+				.toList();
+	}
+
 	private List<String> clientExtraLines(ClientResponse client) {
 		if (client == null) return List.of();
 		if (client.getPerson() != null) {
 			var p = client.getPerson();
 			return java.util.stream.Stream.of(
 					p.getCin() != null && !p.getCin().isBlank() ? "CIN : " + p.getCin() : null,
-					p.getAdresse())
+					p.getAdresse(),
+					p.getTelephone() != null && !p.getTelephone().isBlank() ? "Tél : " + p.getTelephone() : null)
 					.filter(s -> s != null && !s.isBlank())
 					.toList();
 		}
@@ -275,7 +279,8 @@ public class InvoicePdfService {
 			var e = client.getEntreprise();
 			return java.util.stream.Stream.of(
 					e.getFisc() != null && !e.getFisc().isBlank() ? "MF : " + e.getFisc() : null,
-					e.getAdresse())
+					e.getAdresse(),
+					e.getTelephone() != null && !e.getTelephone().isBlank() ? "Tél : " + e.getTelephone() : null)
 					.filter(s -> s != null && !s.isBlank())
 					.toList();
 		}

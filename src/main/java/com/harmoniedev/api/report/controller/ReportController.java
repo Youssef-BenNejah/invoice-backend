@@ -1,7 +1,6 @@
 package com.harmoniedev.api.report.controller;
 
 import com.harmoniedev.api.common.dto.ApiResponse;
-import com.harmoniedev.api.report.domain.dto.response.FiscalReportResponse;
 import com.harmoniedev.api.report.domain.dto.response.ReportOverviewResponse;
 import com.harmoniedev.api.report.domain.dto.response.TopClientResponse;
 import com.harmoniedev.api.report.domain.dto.response.TopServiceResponse;
@@ -63,15 +62,6 @@ public class ReportController {
 			Authentication authentication) {
 		planUsageService.assertReportsAccess(actorId(authentication));
 		return ResponseEntity.ok(ApiResponse.success("Top services", service.topServices(dateFrom, dateTo, limit, currency)));
-	}
-
-	@GetMapping("/fiscal")
-	public ResponseEntity<ApiResponse<FiscalReportResponse>> fiscal(
-			@RequestParam(required = false) String dateFrom,
-			@RequestParam(required = false) String dateTo,
-			Authentication authentication) {
-		planUsageService.assertReportsAccess(actorId(authentication));
-		return ResponseEntity.ok(ApiResponse.success("Fiscal report", service.fiscal(dateFrom, dateTo, actorId(authentication))));
 	}
 
 	@GetMapping("/export")

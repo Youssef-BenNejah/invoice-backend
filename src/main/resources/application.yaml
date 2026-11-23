@@ -1,17 +1,13 @@
 spring:
   application:
-    name: harmonie-dev-api
+    name: invoxa-api
   profiles:
     active: ${APP_ENV}
   data:
     mongodb:
-      uri: mongodb+srv://${DB_USERNAME}:${DB_PASSWORD}@${DB_CLUSTER_URL}/${DB_NAME}?retryWrites=true&w=majority&appName=harmonie-dev-api
+      uri: mongodb://${DB_HOST:localhost}:${DB_PORT:27017}/${DB_NAME}
       database: ${DB_NAME}
       auto-index-creation: false
-    redis:
-      host: ${REDIS_HOST}
-      port: ${REDIS_PORT}
-      password: ${REDIS_PASSWORD}
   threads:
     virtual:
       enabled: true
@@ -37,11 +33,11 @@ spring:
 app:
   env: ${APP_ENV}
   port: ${APP_PORT}
-  frontend-url: ${FRONTEND_URL:https://harmonie-dev.netlify.app}
+  frontend-url: ${FRONTEND_URL:https://invoxa.netlify.app}
 
 mail:
   from-address: ${SPRING_MAIL_USERNAME}
-  from-name: ${MAIL_FROM_NAME:Harmonie-dev}
+  from-name: ${MAIL_FROM_NAME:Invoxa}
 
 seed:
   admin-email: ${SEED_ADMIN_EMAIL:}
@@ -83,9 +79,26 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    mail:
+      # Mail isn't configured for the desktop build (no real SMTP server) — don't let an
+      # unreachable mail host drag down the whole app's health status.
+      enabled: false
 
 springdoc:
   api-docs:
     path: /api-docs
   swagger-ui:
     path: /swagger-ui.html
+
+sync:
+  client:
+    # Only set to true in the desktop build's bundled .env — stays disabled (and inert) on the
+    # cloud deployment, where it would have nothing useful to sync against anyway.
+    enabled: ${SYNC_ENABLED:false}
+    cloud-base-url: ${SYNC_CLOUD_BASE_URL:}
+    email: ${SYNC_CLOUD_EMAIL:}
+    password: ${SYNC_CLOUD_PASSWORD:}
+    poll-interval-ms: ${SYNC_POLL_INTERVAL_MS:30000}
+    connect-timeout-ms: ${SYNC_CONNECT_TIMEOUT_MS:5000}
+    read-timeout-ms: ${SYNC_READ_TIMEOUT_MS:15000}
