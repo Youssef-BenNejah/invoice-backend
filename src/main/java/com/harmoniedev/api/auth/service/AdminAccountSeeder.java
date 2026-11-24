@@ -43,7 +43,7 @@ public class AdminAccountSeeder {
 				.email(normalized)
 				.passwordHash(passwordEncoder.encode(password))
 				.role(Role.ADMIN)
-				.firstName("Super")
+				.firstName("Anwer")
 				.lastName("Admin")
 				.status(AccountStatus.ACTIVE)
 				.build();

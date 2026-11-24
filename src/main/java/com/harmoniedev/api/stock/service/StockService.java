@@ -8,6 +8,8 @@ import com.harmoniedev.api.stock.domain.dto.response.StockMovementResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockReportItemResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockReportResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockResponse;
+import com.harmoniedev.api.stock.domain.dto.response.StockVenteDashboardItemResponse;
+import com.harmoniedev.api.stock.domain.dto.response.StockVenteDashboardResponse;
 import com.harmoniedev.api.stock.domain.model.StockMovementDocument;
 import com.harmoniedev.api.stock.domain.model.StockMovementType;
 import com.harmoniedev.api.stock.domain.model.StockSourceType;
@@ -51,6 +53,11 @@ public class StockService {
 	public List<StockMovementResponse> listMovements(String productId) {
 		findProductOrThrow(productId);
 		return movementRepository.findByProductIdOrderByCreatedDesc(productId).stream().map(this::toResponse).toList();
+	}
+
+	/** Every stock movement across every article, newest first — the full ledger view. */
+	public List<StockMovementResponse> listAllMovements() {
+		return movementRepository.findAllByOrderByCreatedDesc().stream().map(this::toResponse).toList();
 	}
 
 	/** Facture Achat validated: adds {@code quantity} at {@code unitCostHT}, recomputing the CMP. */
@@ -241,6 +248,45 @@ public class StockService {
 				.build();
 	}
 
+	/**
+	 * Same ledger as {@link #dashboard()}, but valued at the selling price (prix d'achat + marge de
+	 * gain) instead of cost — shows what the stock on hand would bring in if sold, so the gap with
+	 * the cost valorisation is the gain.
+	 */
+	public StockVenteDashboardResponse venteDashboard() {
+		List<StockVenteDashboardItemResponse> items = productRepository.findAll().stream()
+				.filter(product -> movementRepository.existsByProductId(product.getId()))
+				.map(this::toVenteDashboardItem)
+				.toList();
+		double totalHT = round(items.stream().mapToDouble(StockVenteDashboardItemResponse::getTotalHTVente).sum());
+		double totalTTC = round(items.stream().mapToDouble(StockVenteDashboardItemResponse::getTotalTTCVente).sum());
+		return StockVenteDashboardResponse.builder()
+				.totalValueHTVente(totalHT)
+				.totalValueTTCVente(totalTTC)
+				.items(items)
+				.build();
+	}
+
+	private StockVenteDashboardItemResponse toVenteDashboardItem(ProductDocument product) {
+		TaxDocument tax = (product.getDefaultTaxId() != null && !product.getDefaultTaxId().isBlank())
+				? taxRepository.findById(product.getDefaultTaxId()).orElse(null) : null;
+		double taxRate = tax != null ? tax.getTaxvalue() : 0;
+		double puHTVente = round(product.getPrixAchat() + (product.getPrixAchat() * product.getMargeGain()) / 100);
+		double puTTCVente = round(puHTVente * (1 + taxRate / 100));
+		double totalHTVente = round(product.getStockQuantity() * puHTVente);
+		double totalTTCVente = round(product.getStockQuantity() * puTTCVente);
+		return StockVenteDashboardItemResponse.builder()
+				.productId(product.getId())
+				.article(product.getName())
+				.ref(product.getReference())
+				.quantite(product.getStockQuantity())
+				.puHTVente(puHTVente)
+				.totalHTVente(totalHTVente)
+				.puTTCVente(puTTCVente)
+				.totalTTCVente(totalTTCVente)
+				.build();
+	}
+
 	private StockDashboardItemResponse toDashboardItem(ProductDocument product) {
 		TaxDocument tax = (product.getDefaultTaxId() != null && !product.getDefaultTaxId().isBlank())
 				? taxRepository.findById(product.getDefaultTaxId()).orElse(null) : null;
@@ -339,9 +385,12 @@ public class StockService {
 	}
 
 	private StockMovementResponse toResponse(StockMovementDocument m) {
+		ProductDocument product = productRepository.findById(m.getProductId()).orElse(null);
 		return StockMovementResponse.builder()
 				.id(m.getId())
 				.productId(m.getProductId())
+				.article(product != null ? product.getName() : null)
+				.ref(product != null ? product.getReference() : null)
 				.type(m.getType())
 				.quantityDelta(m.getQuantityDelta())
 				.unitCost(m.getUnitCost())

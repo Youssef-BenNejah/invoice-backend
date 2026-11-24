@@ -8,6 +8,7 @@ import com.harmoniedev.api.stock.domain.dto.response.StockDashboardResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockMovementResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockReportResponse;
 import com.harmoniedev.api.stock.domain.dto.response.StockResponse;
+import com.harmoniedev.api.stock.domain.dto.response.StockVenteDashboardResponse;
 import com.harmoniedev.api.stock.service.StockService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -41,6 +42,11 @@ public class StockController {
 		return ResponseEntity.ok(ApiResponse.success("Stock dashboard", service.dashboard()));
 	}
 
+	@GetMapping("/dashboard/vente")
+	public ResponseEntity<ApiResponse<StockVenteDashboardResponse>> venteDashboard() {
+		return ResponseEntity.ok(ApiResponse.success("Stock vente dashboard", service.venteDashboard()));
+	}
+
 	@GetMapping("/dashboard/pdf")
 	public ResponseEntity<byte[]> dashboardPdf() {
 		byte[] pdf = pdfService.generateStockReportPdf(service.dashboard());
@@ -57,6 +63,23 @@ public class StockController {
 			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Month must be between 1 and 12");
 		}
 		return ResponseEntity.ok(ApiResponse.success("Stock report", service.report(year, month)));
+	}
+
+	@GetMapping("/report/pdf")
+	public ResponseEntity<byte[]> reportPdf(@RequestParam int year, @RequestParam int month) {
+		if (month < 1 || month > 12) {
+			throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Month must be between 1 and 12");
+		}
+		byte[] pdf = pdfService.generateMonthlyReportPdf(service.report(year, month));
+		return ResponseEntity.ok()
+				.contentType(MediaType.APPLICATION_PDF)
+				.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"rapport-stock-" + year + "-" + month + ".pdf\"")
+				.body(pdf);
+	}
+
+	@GetMapping("/movements")
+	public ResponseEntity<ApiResponse<List<StockMovementResponse>>> allMovements() {
+		return ResponseEntity.ok(ApiResponse.success("Stock movements", service.listAllMovements()));
 	}
 
 	@GetMapping("/products/{productId}")

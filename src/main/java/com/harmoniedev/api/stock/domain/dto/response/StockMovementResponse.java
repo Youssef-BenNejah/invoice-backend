@@ -17,6 +17,8 @@ import lombok.Setter;
 public class StockMovementResponse {
 	private String id;
 	private String productId;
+	private String article;
+	private String ref;
 	private StockMovementType type;
 	private double quantityDelta;
 	private double unitCost;

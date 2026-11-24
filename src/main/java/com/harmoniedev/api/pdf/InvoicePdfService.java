@@ -126,9 +126,6 @@ public class InvoicePdfService {
 				articleCell.setPadding(6);
 				articleCell.setBackgroundColor(LIGHT);
 				articleCell.addElement(new Paragraph(it.getArticle(), normalFont));
-				if (it.getDescription() != null && !it.getDescription().isBlank()) {
-					articleCell.addElement(new Paragraph(it.getDescription(), smallMuted));
-				}
 				items.addCell(articleCell);
 				items.addCell(cell(quantity(it.getQuantity()), normalFont, Element.ALIGN_CENTER));
 				items.addCell(cell(money(it.getPrice(), symbol), normalFont, Element.ALIGN_RIGHT));

@@ -10,6 +10,8 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 public interface StockMovementRepository extends MongoRepository<StockMovementDocument, String> {
 	List<StockMovementDocument> findByProductIdOrderByCreatedDesc(String productId);
 
+	List<StockMovementDocument> findAllByOrderByCreatedDesc();
+
 	Optional<StockMovementDocument> findTopByProductIdOrderByCreatedDesc(String productId);
 
 	/** The last movement for this product at or before a given instant — the stock snapshot "as of" that moment. */
